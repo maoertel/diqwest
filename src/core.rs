@@ -1,7 +1,6 @@
 use async_trait::async_trait;
 use digest_auth::{AuthContext, HttpMethod};
-use http::StatusCode;
-use reqwest::{RequestBuilder, Response};
+use reqwest::{RequestBuilder, Response, StatusCode};
 
 use Error::RequestBuilderNotCloneableError;
 
@@ -30,7 +29,7 @@ impl WithDigestAuth for RequestBuilder {
         let method = HttpMethod::from(request.method().as_str());
         let body = request.body().and_then(|b| b.as_bytes());
         let answer =
-            DigestAuthHelper::parse_digest_auth_header(first_response, url.as_str(), method, body, username, password)?;
+          DigestAuthHelper::parse_digest_auth_header(first_response, url.as_str(), method, body, username, password)?;
 
         Ok(clone_request_builder(self)?.header("Authorization", answer).send().await?)
       }

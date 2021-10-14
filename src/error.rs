@@ -1,7 +1,7 @@
 use std::fmt::{Debug, Display, Formatter};
 use std::result;
 
-use http::header::ToStrError;
+use reqwest::header::ToStrError;
 
 use Error::RequestBuilderNotCloneableError;
 
@@ -11,7 +11,7 @@ use crate::error::Error::{DigestAuthError, ReqwestError, ToStrError as MyToStrEr
 pub enum Error {
   ReqwestError(reqwest::Error),
   DigestAuthError(digest_auth::Error),
-  ToStrError(http::header::ToStrError),
+  ToStrError(reqwest::header::ToStrError),
   RequestBuilderNotCloneableError,
 }
 
@@ -42,7 +42,7 @@ impl From<digest_auth::Error> for Error {
   }
 }
 
-impl From<http::header::ToStrError> for Error {
+impl From<reqwest::header::ToStrError> for Error {
   fn from(e: ToStrError) -> Self {
     MyToStrError(e)
   }

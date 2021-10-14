@@ -1,3 +1,7 @@
+# 0.1.2
+
+- get rid of explicit `http 0.2` dependency and use it transitive from `reqwest` 
+
 # 0.1.1
 
 - make the dependencies less restrictive
