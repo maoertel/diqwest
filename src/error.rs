@@ -3,16 +3,13 @@ use std::result;
 
 use reqwest::header::ToStrError;
 
-use Error::RequestBuilderNotCloneableError;
-
-use crate::error::Error::{DigestAuthError, ReqwestError, ToStrError as MyToStrError};
-
 #[derive(Debug)]
 pub enum Error {
-  ReqwestError(reqwest::Error),
-  DigestAuthError(digest_auth::Error),
-  ToStrError(reqwest::header::ToStrError),
-  RequestBuilderNotCloneableError,
+  Reqwest(reqwest::Error),
+  DigestAuth(digest_auth::Error),
+  ToStr(reqwest::header::ToStrError),
+  AuthHeaderMissing,
+  RequestBuilderNotCloneable,
 }
 
 pub type Result<T> = result::Result<T, Error>;
@@ -20,10 +17,11 @@ pub type Result<T> = result::Result<T, Error>;
 impl Display for Error {
   fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
     match self {
-      ReqwestError(e) => std::fmt::Display::fmt(e, f),
-      DigestAuthError(e) => std::fmt::Display::fmt(e, f),
-      MyToStrError(e) => std::fmt::Display::fmt(e, f),
-      RequestBuilderNotCloneableError => write!(f, "Request body must not be a stream."),
+      Error::Reqwest(e) => std::fmt::Display::fmt(e, f),
+      Error::DigestAuth(e) => std::fmt::Display::fmt(e, f),
+      Error::ToStr(e) => std::fmt::Display::fmt(e, f),
+      Error::RequestBuilderNotCloneable => write!(f, "Request body must not be a stream."),
+      Error::AuthHeaderMissing => write!(f, "The header 'www-authenticate' is missing."),
     }
   }
 }
@@ -32,18 +30,18 @@ impl std::error::Error for Error {}
 
 impl From<reqwest::Error> for Error {
   fn from(e: reqwest::Error) -> Self {
-    ReqwestError(e)
+    Error::Reqwest(e)
   }
 }
 
 impl From<digest_auth::Error> for Error {
   fn from(e: digest_auth::Error) -> Self {
-    DigestAuthError(e)
+    Error::DigestAuth(e)
   }
 }
 
 impl From<reqwest::header::ToStrError> for Error {
   fn from(e: ToStrError) -> Self {
-    MyToStrError(e)
+    Error::ToStr(e)
   }
 }

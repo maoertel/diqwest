@@ -1,3 +1,8 @@
+# 1.0.0
+
+- establish usage with `blocking` behavior as a non default feature
+- the package structure changed in a breaking way, sematic version for major +1
+
 # 0.1.2
 
 - get rid of explicit `http 0.2` dependency and use it transitive from `reqwest` 

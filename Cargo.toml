@@ -1,7 +1,7 @@
 [package]
 name = "diqwest"
-version = "0.1.2"
-edition = "2018"
+version = "1.0.0"
+edition = "2021"
 authors = ["Mathias Oertel <mathias.oertel@pm.me>"]
 description = "Trait to extend reqwest for digest auth flow."
 documentation = "https://docs.rs/diqwest"
@@ -11,7 +11,18 @@ categories = ["authentication", "cryptography", "web-programming::http-client"]
 license = "MIT"
 repository = "https://github.com/maoertel/diqwest"
 
+[features]
+default = []
+blocking = ["reqwest/blocking"]
+
 [dependencies]
 async-trait = "0.1"
 digest_auth = "0.3"
 reqwest = "0.11"
+
+[target.'cfg(blocking)'.dependencies]
+reqwest =  { version = "0.11", features = ["blocking"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }
+mockito = "0.31"
