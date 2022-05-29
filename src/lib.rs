@@ -6,14 +6,12 @@
 //! will be returned from `send_with_digest_auth()`.
 //!
 //! In case the first response is not a `401` this first response is returned from
-//! `send_with_digest_auth()` without any manipulation. In case the first response is a `401` 
+//! `send_with_digest_auth()` without any manipulation. In case the first response is a `401`
 //! but the `www-authenticate` header is missing the first reponse is returned as well.
 //!
-//! By default this crate works async.
+//! # Examples
 //!
-//! # Example
-//!
-//! Usage:
+//! By default this crate works async:
 //!
 //! ```compile_fail
 //! use diqwest::WithDigestAuth;
@@ -29,11 +27,7 @@
 //!
 //! In case you need blocking behavior enable the `blocking` feature in your `Cargo.toml`.
 //!
-//! # Example
-//!
-//! Usage:
-//!
-//! //! ```compile_fail
+//! ```compile_fail
 //! use diqwest::blocking::WithDigestAuth;
 //! use reqwest::blocking::{Client, Response};
 //!
@@ -77,10 +71,10 @@ impl WithDigestAuth for RequestBuilder {
     match first_response.status() {
       StatusCode::UNAUTHORIZED => {
         let request = clone_request_builder(self)?.build()?;
-        let url = request.url();
+        let path = request.url().path();
         let method = HttpMethod::from(request.method().as_str());
         let body = request.body().and_then(|b| b.as_bytes());
-        let answer = parse_digest_auth_header(first_response.headers(), url.as_str(), method, body, username, password);
+        let answer = parse_digest_auth_header(first_response.headers(), path, method, body, username, password);
 
         match answer {
           Ok(answer) => Ok(
@@ -100,14 +94,14 @@ impl WithDigestAuth for RequestBuilder {
 
 fn parse_digest_auth_header(
   header: &HeaderMap,
-  uri: &str,
+  path: &str,
   method: HttpMethod,
   body: Option<&[u8]>,
   username: &str,
   password: &str,
 ) -> Result<AuthorizationHeader> {
   let www_auth = header.get("www-authenticate").ok_or(Error::AuthHeaderMissing)?.to_str()?;
-  let context = AuthContext::new_with_method(username, password, uri, body, method);
+  let context = AuthContext::new_with_method(username, password, path, body, method);
   let mut prompt = digest_auth::parse(www_auth)?;
 
   Ok(prompt.respond(&context)?)
@@ -127,8 +121,9 @@ mod tests {
   #[tokio::test]
   async fn given_non_digest_auth_endpoint_when_send_with_da_then_request_executed_normally() {
     // Given I have a GET request against a non digest auth endpoint
-    let mock = mock("GET", "/test").with_status(200).create();
-    let request = Client::new().get(format!("{}/test", mockito::server_url()));
+    let path = "/test";
+    let mock = mock("GET", path).with_status(200).create();
+    let request = Client::new().get(format!("{domain}{path}", domain = mockito::server_url()));
 
     // When I send with digest auth
     let response = request.send_with_digest_auth("username", "password").await.unwrap();
@@ -141,8 +136,9 @@ mod tests {
   #[tokio::test]
   async fn given_non_digest_auth_endpoint_unauthorized_when_send_with_da_then_request_fails_with_401() {
     // Given I have a GET request against a non digest auth  but authorized endpoint
-    let mock = mock("GET", "/test").with_status(401).create();
-    let request = Client::new().get(format!("{}/test", mockito::server_url()));
+    let path = "/test";
+    let mock = mock("GET", path).with_status(401).create();
+    let request = Client::new().get(format!("{domain}{path}", domain = mockito::server_url()));
 
     // When I send with digest auth
     let response = request.send_with_digest_auth("username", "password").await.unwrap();
@@ -155,22 +151,23 @@ mod tests {
   #[tokio::test]
   async fn given_digest_auth_endpoint_authorized_when_send_with_da_then_request_succeeds() {
     // Given I have a GET request against a digest auth endpoint with valid 'www-authenticate' header
-    let url = format!("{}/test", mockito::server_url());
+    let path = "/test";
+    let url = format!("{domain}{path}", domain = mockito::server_url());
     let www_authenticate = "Digest realm=\"testrealm@host.com\",qop=\"auth,auth-int\",nonce=\"dcd98b7102dd2f0e8b11d0f600bfb0c093\",opaque=\"5ccc069c403ebaf9f0171e9517f40e41\"";
     let mut header = HeaderMap::new();
     header.insert("www-authenticate", HeaderValue::from_static(www_authenticate));
-    let auth_header = parse_digest_auth_header(&header, &url, HttpMethod::GET, None, "username", "password").unwrap();
+    let auth_header = parse_digest_auth_header(&header, path, HttpMethod::GET, None, "username", "password").unwrap();
 
-    let first_request = mock("GET", "/test")
+    let first_request = mock("GET", path)
       .with_status(401)
       .with_header("www-authenticate", www_authenticate)
       .create();
-    let second_request = mock("GET", "/test")
+    let second_request = mock("GET", path)
       .with_header("Authorization", &auth_header.to_header_string())
       .with_status(200)
       .create();
 
-    let request = Client::new().get(&url);
+    let request = Client::new().get(url);
 
     // When I send with digest auth
     let response = request.send_with_digest_auth("username", "password").await.unwrap();
