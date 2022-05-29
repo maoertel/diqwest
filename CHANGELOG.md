@@ -1,3 +1,7 @@
+# 1.0.1
+
+- bugfix: the passed uri to the www-athenticate header must only consist of the path of the uri
+
 # 1.0.0
 
 - establish usage with `blocking` behavior as a non default feature
