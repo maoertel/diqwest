@@ -12,16 +12,15 @@ license = "MIT"
 repository = "https://github.com/maoertel/diqwest"
 
 [features]
-default = []
+default = ["reqwest/default"]
 blocking = ["reqwest/blocking"]
+rustls-tls = ["reqwest/rustls-tls"]
 
 [dependencies]
 async-trait = "0.1"
 digest_auth = "0.3"
-reqwest = "0.11"
+reqwest = { version = "0.11", default-features = false }
 
-[target.'cfg(blocking)'.dependencies]
-reqwest =  { version = "0.11", features = ["blocking"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }
