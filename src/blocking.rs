@@ -1,6 +1,7 @@
 use digest_auth::HttpMethod;
 use reqwest::blocking::{RequestBuilder, Response};
 use reqwest::StatusCode;
+use url::Position;
 
 use crate::error::Error::{AuthHeaderMissing, RequestBuilderNotCloneable};
 use crate::error::Result;
@@ -23,7 +24,7 @@ impl WithDigestAuth for RequestBuilder {
     match first_response.status() {
       StatusCode::UNAUTHORIZED => {
         let request = clone_request_builder(self)?.build()?;
-        let path = request.url().path();
+        let path = &request.url()[Position::AfterPort..];
         let method = HttpMethod::from(request.method().as_str());
         let body = request.body().and_then(|b| b.as_bytes());
         let answer = parse_digest_auth_header(first_response.headers(), path, method, body, username, password);
