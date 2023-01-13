@@ -106,7 +106,7 @@ mod tests {
       .with_status(200)
       .create();
 
-    let request = Client::new().get(&url);
+    let request = Client::new().get(url);
 
     // When I send with digest auth
     let response = request.send_with_digest_auth("username", "password").unwrap();
