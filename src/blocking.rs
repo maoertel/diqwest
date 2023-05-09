@@ -1,9 +1,9 @@
 use reqwest::blocking::{Body, Request, RequestBuilder, Response};
-use reqwest::{header::AUTHORIZATION, Method, StatusCode};
+use reqwest::header::{HeaderMap, AUTHORIZATION};
+use reqwest::{Method, StatusCode};
 use url::Url;
 
-use crate::common::{calculate_answer, clone_request_builder, AsBytes, Build, RequestIt, TryClone};
-use crate::error::Error::AuthHeaderMissing;
+use crate::common::{clone_request_builder, get_answer, AsBytes, Build, TryClone, WithHeaders, WithRequest};
 use crate::error::Result;
 
 /// A trait to extend the functionality of a blocking `RequestBuilder` to send a request with digest auth flow.
@@ -17,19 +17,14 @@ impl WithDigestAuth for RequestBuilder {
   fn send_with_digest_auth(&self, username: &str, password: &str) -> Result<Response> {
     let first_response = clone_request_builder(self)?.send()?;
     match first_response.status() {
-      StatusCode::UNAUTHORIZED => {
-        let answer = calculate_answer(self, first_response.headers(), username, password);
-
-        match answer {
-          Ok(answer) => Ok(
-            clone_request_builder(self)?
-              .header(AUTHORIZATION, answer.to_header_string())
-              .send()?,
-          ),
-          Err(AuthHeaderMissing) => Ok(first_response),
-          Err(error) => Err(error),
-        }
-      }
+      StatusCode::UNAUTHORIZED => match get_answer(self, first_response, username, password)? {
+        (Some(answer), _) => Ok(
+          clone_request_builder(self)?
+            .header(AUTHORIZATION, answer.to_header_string())
+            .send()?,
+        ),
+        (_, initial_response) => Ok(initial_response),
+      },
       _ => Ok(first_response),
     }
   }
@@ -53,7 +48,7 @@ impl AsBytes for Body {
   }
 }
 
-impl RequestIt<Body> for Request {
+impl WithRequest<Body> for Request {
   fn method(&self) -> &Method {
     self.method()
   }
@@ -64,6 +59,12 @@ impl RequestIt<Body> for Request {
 
   fn body(&self) -> Option<&Body> {
     self.body()
+  }
+}
+
+impl WithHeaders for Response {
+  fn headers(&self) -> &HeaderMap {
+    self.headers()
   }
 }
 

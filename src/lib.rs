@@ -45,13 +45,14 @@ pub mod common;
 pub mod error;
 
 use async_trait::async_trait;
+use common::WithHeaders;
 use digest_auth::AuthContext;
-use reqwest::{header::AUTHORIZATION, Request, RequestBuilder, Response, StatusCode};
+use reqwest::header::{HeaderMap, AUTHORIZATION};
 use reqwest::{Body, Method};
+use reqwest::{Request, RequestBuilder, Response, StatusCode};
 use url::Url;
 
-use crate::common::{calculate_answer, clone_request_builder, AsBytes, Build, RequestIt, TryClone};
-use crate::error::Error::AuthHeaderMissing;
+use crate::common::{clone_request_builder, get_answer, AsBytes, Build, TryClone, WithRequest};
 use crate::error::{Error, Result};
 
 /// A trait to extend the functionality of an async `RequestBuilder` to send a request with digest auth flow.
@@ -67,20 +68,15 @@ impl WithDigestAuth for RequestBuilder {
   async fn send_with_digest_auth(&self, username: &str, password: &str) -> Result<Response> {
     let first_response = clone_request_builder(self)?.send().await?;
     match first_response.status() {
-      StatusCode::UNAUTHORIZED => {
-        let answer = calculate_answer(self, first_response.headers(), username, password);
-
-        match answer {
-          Ok(answer) => Ok(
-            clone_request_builder(self)?
-              .header(AUTHORIZATION, answer.to_header_string())
-              .send()
-              .await?,
-          ),
-          Err(AuthHeaderMissing) => Ok(first_response),
-          Err(error) => Err(error),
-        }
-      }
+      StatusCode::UNAUTHORIZED => match get_answer(self, first_response, username, password)? {
+        (Some(answer), _) => Ok(
+          clone_request_builder(self)?
+            .header(AUTHORIZATION, answer.to_header_string())
+            .send()
+            .await?,
+        ),
+        (_, initial_response) => Ok(initial_response),
+      },
       _ => Ok(first_response),
     }
   }
@@ -104,7 +100,7 @@ impl AsBytes for Body {
   }
 }
 
-impl RequestIt<Body> for Request {
+impl WithRequest<Body> for Request {
   fn method(&self) -> &Method {
     self.method()
   }
@@ -115,6 +111,12 @@ impl RequestIt<Body> for Request {
 
   fn body(&self) -> Option<&Body> {
     self.body()
+  }
+}
+
+impl WithHeaders for Response {
+  fn headers(&self) -> &HeaderMap {
+    self.headers()
   }
 }
 

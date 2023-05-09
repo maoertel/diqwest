@@ -1,13 +1,11 @@
-use digest_auth::AuthorizationHeader;
-use digest_auth::HttpMethod;
+use digest_auth::{AuthorizationHeader, HttpMethod};
 use reqwest::header::HeaderMap;
 use reqwest::Method;
-use url::Position;
-use url::Url;
+use url::{Position, Url};
 
 use crate::error::{Error, Result};
 use crate::AuthContext;
-use crate::Error::RequestBuilderNotCloneable;
+use crate::Error::{AuthHeaderMissing, RequestBuilderNotCloneable};
 
 pub(crate) trait TryClone {
   fn try_clone(&self) -> Option<Self>
@@ -19,13 +17,17 @@ pub(crate) trait Build<R> {
   fn build(self) -> Result<R>;
 }
 
-pub(crate) trait RequestIt<B>
+pub(crate) trait WithRequest<B>
 where
   B: AsBytes,
 {
   fn url(&self) -> &Url;
   fn method(&self) -> &Method;
   fn body(&self) -> Option<&B>;
+}
+
+pub(crate) trait WithHeaders {
+  fn headers(&self) -> &HeaderMap;
 }
 
 pub(crate) trait AsBytes {
@@ -51,16 +53,16 @@ pub(crate) fn parse_digest_auth_header(
   Ok(prompt.respond(&context)?)
 }
 
-pub(crate) fn calculate_answer<B, R, BO>(
-  request_builder: &B,
+fn calculate_answer<Bod, Req, Bui>(
+  request_builder: &Bui,
   headers: &HeaderMap,
   username: &str,
   password: &str,
 ) -> Result<AuthorizationHeader>
 where
-  BO: AsBytes,
-  R: RequestIt<BO>,
-  B: Build<R> + TryClone,
+  Bod: AsBytes,
+  Req: WithRequest<Bod>,
+  Bui: Build<Req> + TryClone,
 {
   let request = clone_request_builder(request_builder)?.build()?;
   let path = &request.url()[Position::AfterPort..];
@@ -68,4 +70,24 @@ where
   let body = request.body().and_then(|b| b.as_bytes());
 
   parse_digest_auth_header(headers, path, method, body, username, password)
+}
+
+pub(crate) fn get_answer<Bod, Req, Bui, Res>(
+  request_builder: &Bui,
+  first_response: Res,
+  username: &str,
+  password: &str,
+) -> Result<(Option<AuthorizationHeader>, Res)>
+where
+  Bod: AsBytes,
+  Req: WithRequest<Bod>,
+  Bui: Build<Req> + TryClone,
+  Res: WithHeaders,
+{
+  let answer = calculate_answer(request_builder, first_response.headers(), username, password);
+  match answer {
+    Ok(answer) => Ok((Some(answer), first_response)),
+    Err(AuthHeaderMissing) => Ok((None, first_response)),
+    Err(error) => Err(error),
+  }
 }
