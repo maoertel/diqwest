@@ -72,22 +72,21 @@ where
   parse_digest_auth_header(headers, path, method, body, username, password)
 }
 
-pub(crate) fn get_answer<Bod, Req, Bui, Res>(
+pub(crate) fn get_answer<Bod, Req, Bui>(
   request_builder: &Bui,
-  first_response: Res,
+  first_response: &HeaderMap,
   username: &str,
   password: &str,
-) -> Result<(Option<AuthorizationHeader>, Res)>
+) -> Result<Option<AuthorizationHeader>>
 where
   Bod: AsBytes,
   Req: WithRequest<Bod>,
   Bui: Build<Req> + TryClone,
-  Res: WithHeaders,
 {
-  let answer = calculate_answer(request_builder, first_response.headers(), username, password);
+  let answer = calculate_answer(request_builder, first_response, username, password);
   match answer {
-    Ok(answer) => Ok((Some(answer), first_response)),
-    Err(AuthHeaderMissing) => Ok((None, first_response)),
+    Ok(answer) => Ok(Some(answer)),
+    Err(AuthHeaderMissing) => Ok(None),
     Err(error) => Err(error),
   }
 }

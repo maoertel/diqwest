@@ -68,15 +68,18 @@ impl WithDigestAuth for RequestBuilder {
   async fn send_with_digest_auth(&self, username: &str, password: &str) -> Result<Response> {
     let first_response = clone_request_builder(self)?.send().await?;
     match first_response.status() {
-      StatusCode::UNAUTHORIZED => match get_answer(self, first_response, username, password)? {
-        (Some(answer), _) => Ok(
+      StatusCode::UNAUTHORIZED => {
+        let response = if let Some(answer) = get_answer(self, first_response.headers(), username, password)? {
           clone_request_builder(self)?
             .header(AUTHORIZATION, answer.to_header_string())
             .send()
-            .await?,
-        ),
-        (_, initial_response) => Ok(initial_response),
-      },
+            .await?
+        } else {
+          first_response
+        };
+
+        Ok(response)
+      }
       _ => Ok(first_response),
     }
   }
