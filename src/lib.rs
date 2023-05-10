@@ -45,14 +45,13 @@ pub mod common;
 pub mod error;
 
 use async_trait::async_trait;
-use common::WithHeaders;
 use digest_auth::AuthContext;
 use reqwest::header::{HeaderMap, AUTHORIZATION};
 use reqwest::{Body, Method};
 use reqwest::{Request, RequestBuilder, Response, StatusCode};
 use url::Url;
 
-use crate::common::{clone_request_builder, get_answer, AsBytes, Build, TryClone, WithRequest};
+use crate::common::{clone_request_builder, get_answer, AsBytes, Build, TryClone, WithHeaders, WithRequest};
 use crate::error::{Error, Result};
 
 /// A trait to extend the functionality of an async `RequestBuilder` to send a request with digest auth flow.
@@ -68,21 +67,28 @@ impl WithDigestAuth for RequestBuilder {
   async fn send_with_digest_auth(&self, username: &str, password: &str) -> Result<Response> {
     let first_response = clone_request_builder(self)?.send().await?;
     match first_response.status() {
-      StatusCode::UNAUTHORIZED => {
-        let response = if let Some(answer) = get_answer(self, first_response.headers(), username, password)? {
-          clone_request_builder(self)?
-            .header(AUTHORIZATION, answer.to_header_string())
-            .send()
-            .await?
-        } else {
-          first_response
-        };
-
-        Ok(response)
-      }
+      StatusCode::UNAUTHORIZED => try_digest_auth(self, first_response, username, password).await,
       _ => Ok(first_response),
     }
   }
+}
+
+async fn try_digest_auth(
+  request_builder: &RequestBuilder,
+  first_response: Response,
+  username: &str,
+  password: &str,
+) -> Result<Response> {
+  if let Some(answer) = get_answer(request_builder, first_response.headers(), username, password)? {
+    return Ok(
+      clone_request_builder(request_builder)?
+        .header(AUTHORIZATION, answer.to_header_string())
+        .send()
+        .await?,
+    );
+  };
+
+  Ok(first_response)
 }
 
 impl TryClone for RequestBuilder {

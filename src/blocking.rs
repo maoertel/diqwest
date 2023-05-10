@@ -17,20 +17,27 @@ impl WithDigestAuth for RequestBuilder {
   fn send_with_digest_auth(&self, username: &str, password: &str) -> Result<Response> {
     let first_response = clone_request_builder(self)?.send()?;
     match first_response.status() {
-      StatusCode::UNAUTHORIZED => {
-        let response = if let Some(answer) = get_answer(self, first_response.headers(), username, password)? {
-          clone_request_builder(self)?
-            .header(AUTHORIZATION, answer.to_header_string())
-            .send()?
-        } else {
-          first_response
-        };
-
-        Ok(response)
-      }
+      StatusCode::UNAUTHORIZED => try_digest_auth(self, first_response, username, password),
       _ => Ok(first_response),
     }
   }
+}
+
+fn try_digest_auth(
+  request_builder: &RequestBuilder,
+  first_response: Response,
+  username: &str,
+  password: &str,
+) -> Result<Response> {
+  if let Some(answer) = get_answer(request_builder, first_response.headers(), username, password)? {
+    return Ok(
+      clone_request_builder(request_builder)?
+        .header(AUTHORIZATION, answer.to_header_string())
+        .send()?,
+    );
+  };
+
+  Ok(first_response)
 }
 
 impl TryClone for RequestBuilder {
