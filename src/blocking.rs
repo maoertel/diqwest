@@ -1,11 +1,10 @@
-use digest_auth::HttpMethod;
-use reqwest::blocking::{RequestBuilder, Response};
-use reqwest::StatusCode;
-use url::Position;
+use reqwest::blocking::{Body, Request, RequestBuilder, Response};
+use reqwest::header::{HeaderMap, AUTHORIZATION};
+use reqwest::{Method, StatusCode};
+use url::Url;
 
-use crate::error::Error::{AuthHeaderMissing, RequestBuilderNotCloneable};
+use crate::common::{get_answer, AsBytes, Build, CloneRequestBuilder, TryClone, WithHeaders, WithRequest};
 use crate::error::Result;
-use crate::parse_digest_auth_header;
 
 /// A trait to extend the functionality of a blocking `RequestBuilder` to send a request with digest auth flow.
 ///
@@ -16,38 +15,74 @@ pub trait WithDigestAuth {
 
 impl WithDigestAuth for RequestBuilder {
   fn send_with_digest_auth(&self, username: &str, password: &str) -> Result<Response> {
-    fn clone_request_builder(request_builder: &RequestBuilder) -> Result<RequestBuilder> {
-      request_builder.try_clone().ok_or(RequestBuilderNotCloneable)
-    }
-
-    let first_response = clone_request_builder(self)?.send()?;
+    let first_response = self.refresh()?.send()?;
     match first_response.status() {
-      StatusCode::UNAUTHORIZED => {
-        let request = clone_request_builder(self)?.build()?;
-        let path = &request.url()[Position::AfterPort..];
-        let method = HttpMethod::from(request.method().as_str());
-        let body = request.body().and_then(|b| b.as_bytes());
-        let answer = parse_digest_auth_header(first_response.headers(), path, method, body, username, password);
-
-        match answer {
-          Ok(answer) => Ok(
-            clone_request_builder(self)?
-              .header("Authorization", answer.to_header_string())
-              .send()?,
-          ),
-          Err(AuthHeaderMissing) => Ok(first_response),
-          Err(error) => Err(error),
-        }
-      }
+      StatusCode::UNAUTHORIZED => try_digest_auth(self, first_response, username, password),
       _ => Ok(first_response),
     }
+  }
+}
+
+fn try_digest_auth(
+  request_builder: &RequestBuilder,
+  first_response: Response,
+  username: &str,
+  password: &str,
+) -> Result<Response> {
+  if let Some(answer) = get_answer(request_builder, first_response.headers(), username, password)? {
+    return Ok(
+      request_builder
+        .refresh()?
+        .header(AUTHORIZATION, answer.to_header_string())
+        .send()?,
+    );
+  };
+
+  Ok(first_response)
+}
+
+impl TryClone for RequestBuilder {
+  fn try_clone(&self) -> Option<Self> {
+    self.try_clone()
+  }
+}
+
+impl Build<Request> for RequestBuilder {
+  fn build(self) -> Result<Request> {
+    Ok(self.build()?)
+  }
+}
+
+impl AsBytes for Body {
+  fn as_bytes(&self) -> Option<&[u8]> {
+    self.as_bytes()
+  }
+}
+
+impl WithRequest<Body> for Request {
+  fn method(&self) -> &Method {
+    self.method()
+  }
+
+  fn url(&self) -> &Url {
+    self.url()
+  }
+
+  fn body(&self) -> Option<&Body> {
+    self.body()
+  }
+}
+
+impl WithHeaders for Response {
+  fn headers(&self) -> &HeaderMap {
+    self.headers()
   }
 }
 
 #[cfg(test)]
 mod tests {
   use crate::blocking::WithDigestAuth;
-  use crate::parse_digest_auth_header;
+  use crate::common::parse_digest_auth_header;
 
   use digest_auth::HttpMethod;
   use mockito::{mock, Mock};
