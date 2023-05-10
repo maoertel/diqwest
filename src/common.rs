@@ -34,8 +34,20 @@ pub(crate) trait AsBytes {
   fn as_bytes(&self) -> Option<&[u8]>;
 }
 
-pub(crate) fn clone_request_builder<T: TryClone>(request_builder: &T) -> Result<T> {
-  request_builder.try_clone().ok_or(RequestBuilderNotCloneable)
+pub(crate) trait CloneRequestBuilder<T>
+where
+  T: TryClone,
+{
+  fn refresh(&self) -> Result<T>;
+}
+
+impl<T> CloneRequestBuilder<T> for T
+where
+  T: TryClone,
+{
+  fn refresh(&self) -> Result<T> {
+    self.try_clone().ok_or(RequestBuilderNotCloneable)
+  }
 }
 
 pub(crate) fn parse_digest_auth_header(
@@ -64,7 +76,7 @@ where
   Req: WithRequest<Bod>,
   Bui: Build<Req> + TryClone,
 {
-  let request = clone_request_builder(request_builder)?.build()?;
+  let request = request_builder.refresh()?.build()?;
   let path = &request.url()[Position::AfterPort..];
   let method = HttpMethod::from(request.method().as_str());
   let body = request.body().and_then(|b| b.as_bytes());

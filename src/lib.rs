@@ -51,7 +51,7 @@ use reqwest::{Body, Method};
 use reqwest::{Request, RequestBuilder, Response, StatusCode};
 use url::Url;
 
-use crate::common::{clone_request_builder, get_answer, AsBytes, Build, TryClone, WithHeaders, WithRequest};
+use crate::common::{get_answer, AsBytes, Build, CloneRequestBuilder, TryClone, WithHeaders, WithRequest};
 use crate::error::{Error, Result};
 
 /// A trait to extend the functionality of an async `RequestBuilder` to send a request with digest auth flow.
@@ -65,7 +65,7 @@ pub trait WithDigestAuth {
 #[async_trait]
 impl WithDigestAuth for RequestBuilder {
   async fn send_with_digest_auth(&self, username: &str, password: &str) -> Result<Response> {
-    let first_response = clone_request_builder(self)?.send().await?;
+    let first_response = self.refresh()?.send().await?;
     match first_response.status() {
       StatusCode::UNAUTHORIZED => try_digest_auth(self, first_response, username, password).await,
       _ => Ok(first_response),
@@ -81,7 +81,8 @@ async fn try_digest_auth(
 ) -> Result<Response> {
   if let Some(answer) = get_answer(request_builder, first_response.headers(), username, password)? {
     return Ok(
-      clone_request_builder(request_builder)?
+      request_builder
+        .refresh()?
         .header(AUTHORIZATION, answer.to_header_string())
         .send()
         .await?,
