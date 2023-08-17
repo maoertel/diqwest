@@ -136,7 +136,7 @@ mod tests {
   use crate::WithDigestAuth;
 
   use digest_auth::HttpMethod;
-  use mockito::{mock, Mock};
+  use mockito::Mock;
   use reqwest::{
     header::{HeaderMap, HeaderValue},
     Client, StatusCode,
@@ -146,8 +146,9 @@ mod tests {
   async fn given_non_digest_auth_endpoint_when_send_with_da_then_request_executed_normally() {
     // Given I have a GET request against a non digest auth endpoint
     let path = "/test";
-    let mock = mock("GET", path).with_status(200).create();
-    let request = Client::new().get(format!("{domain}{path}", domain = mockito::server_url()));
+    let mut server = mockito::Server::new();
+    let mock = server.mock("GET", path).with_status(200).create();
+    let request = Client::new().get(format!("{domain}{path}", domain = server.url()));
 
     // When I send with digest auth
     let response = request.send_with_digest_auth("username", "password").await.unwrap();
@@ -161,8 +162,9 @@ mod tests {
   async fn given_non_digest_auth_endpoint_unauthorized_when_send_with_da_then_request_fails_with_401() {
     // Given I have a GET request against a non digest auth  but authorized endpoint
     let path = "/test";
-    let mock = mock("GET", path).with_status(401).create();
-    let request = Client::new().get(format!("{domain}{path}", domain = mockito::server_url()));
+    let mut server = mockito::Server::new();
+    let mock = server.mock("GET", path).with_status(401).create();
+    let request = Client::new().get(format!("{domain}{path}", domain = server.url()));
 
     // When I send with digest auth
     let response = request.send_with_digest_auth("username", "password").await.unwrap();
@@ -176,17 +178,20 @@ mod tests {
   async fn given_digest_auth_endpoint_authorized_when_send_with_da_then_request_succeeds() {
     // Given I have a GET request against a digest auth endpoint with valid 'www-authenticate' header
     let path = "/test";
-    let url = format!("{domain}{path}", domain = mockito::server_url());
+    let mut server = mockito::Server::new();
+    let url = format!("{domain}{path}", domain = server.url());
     let www_authenticate = "Digest realm=\"testrealm@host.com\",qop=\"auth,auth-int\",nonce=\"dcd98b7102dd2f0e8b11d0f600bfb0c093\",opaque=\"5ccc069c403ebaf9f0171e9517f40e41\"";
     let mut header = HeaderMap::new();
     header.insert("www-authenticate", HeaderValue::from_static(www_authenticate));
     let auth_header = parse_digest_auth_header(&header, path, HttpMethod::GET, None, "username", "password").unwrap();
 
-    let first_request = mock("GET", path)
+    let first_request = server
+      .mock("GET", path)
       .with_status(401)
       .with_header("www-authenticate", www_authenticate)
       .create();
-    let second_request = mock("GET", path)
+    let second_request = server
+      .mock("GET", path)
       .with_header("Authorization", &auth_header.to_header_string())
       .with_status(200)
       .create();
