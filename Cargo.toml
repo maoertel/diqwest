@@ -14,7 +14,6 @@ repository = "https://github.com/maoertel/diqwest"
 [features]
 default = []
 blocking = ["reqwest/blocking"]
-rustls-tls = ["reqwest/rustls-tls"]
 
 [dependencies]
 async-trait = "0.1"
