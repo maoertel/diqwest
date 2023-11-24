@@ -12,13 +12,12 @@ license = "MIT"
 repository = "https://github.com/maoertel/diqwest"
 
 [features]
-default = ["reqwest/default"]
+default = []
 blocking = ["reqwest/blocking"]
-rustls-tls = ["reqwest/rustls-tls"]
 
 [dependencies]
 async-trait = "0.1"
-digest_auth = "0.3"
+digest_auth = { version = "0.3", default-features = false }
 reqwest = { version = "0.11", default-features = false }
 url = "2.4"
 
