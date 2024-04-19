@@ -149,7 +149,7 @@ mod tests {
   #[tokio::test]
   async fn given_non_digest_auth_endpoint_when_send_with_da_then_request_executed_normally() {
     // Given I have a GET request against a non digest auth endpoint
-    let mut server = mockito::Server::new();
+    let mut server = mockito::Server::new_async().await;
     let mock = server.mock("GET", PATH).with_status(200).create();
     let request = create_request(&server);
 
@@ -164,7 +164,7 @@ mod tests {
   #[tokio::test]
   async fn given_non_digest_auth_endpoint_unauthorized_when_send_with_da_then_request_fails_with_401() {
     // Given I have a GET request against a non digest auth  but authorized endpoint
-    let mut server = mockito::Server::new();
+    let mut server = mockito::Server::new_async().await;
     let mock = server.mock("GET", PATH).with_status(401).create();
     let request = create_request(&server);
 
@@ -179,7 +179,7 @@ mod tests {
   #[tokio::test]
   async fn given_digest_auth_endpoint_authorized_when_send_with_da_then_request_succeeds() {
     // Given I have a GET request against a digest auth endpoint with valid 'www-authenticate' header
-    let mut server = mockito::Server::new();
+    let mut server = mockito::Server::new_async().await;
     let www_authenticate = "Digest realm=\"testrealm@host.com\",qop=\"auth,auth-int\",nonce=\"dcd98b7102dd2f0e8b11d0f600bfb0c093\",opaque=\"5ccc069c403ebaf9f0171e9517f40e41\"";
     let mut header = HeaderMap::new();
     header.insert("www-authenticate", HeaderValue::from_static(www_authenticate));

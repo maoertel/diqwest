@@ -23,4 +23,4 @@ url = "2.4"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }
-mockito = "1.2"
+mockito = "1.4"
