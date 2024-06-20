@@ -26,6 +26,7 @@ where
   fn body(&self) -> Option<&B>;
 }
 
+#[allow(dead_code)]
 pub(crate) trait WithHeaders {
   fn headers(&self) -> &HeaderMap;
 }
