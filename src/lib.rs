@@ -44,7 +44,8 @@ pub mod blocking;
 pub mod common;
 pub mod error;
 
-use async_trait::async_trait;
+use std::future::Future;
+
 use digest_auth::AuthContext;
 use reqwest::header::{HeaderMap, AUTHORIZATION};
 use reqwest::{Body, Method};
@@ -57,12 +58,10 @@ use crate::error::{Error, Result};
 /// A trait to extend the functionality of an async `RequestBuilder` to send a request with digest auth flow.
 ///
 /// Call it at the end of your `RequestBuilder` chain like you would use `send()`.
-#[async_trait]
 pub trait WithDigestAuth {
-  async fn send_with_digest_auth(&self, username: &str, password: &str) -> Result<Response>;
+  fn send_with_digest_auth(&self, username: &str, password: &str) -> impl Future<Output = Result<Response>> + Send;
 }
 
-#[async_trait]
 impl WithDigestAuth for RequestBuilder {
   async fn send_with_digest_auth(&self, username: &str, password: &str) -> Result<Response> {
     let first_response = self.refresh()?.send().await?;
