@@ -86,10 +86,13 @@ async fn try_digest_auth(
   password: &str,
 ) -> Result<Response> {
   if let Some(answer) = get_answer(request_builder, first_response.headers(), username, password)? {
+    let mut headers = HeaderMap::new();
+    headers.insert(AUTHORIZATION, answer.to_header_string().parse().unwrap());
+    
     return Ok(
       request_builder
         .refresh()?
-        .header(AUTHORIZATION, answer.to_header_string())
+        .headers(headers)
         .send()
         .await?,
     );
