@@ -1,13 +1,14 @@
 use std::fmt::{Debug, Display, Formatter};
 use std::result;
 
-use reqwest::header::ToStrError;
+use reqwest::header::{InvalidHeaderValue, ToStrError};
 
 #[derive(Debug)]
 pub enum Error {
   Reqwest(reqwest::Error),
   DigestAuth(digest_auth::Error),
   ToStr(reqwest::header::ToStrError),
+  InvalidHeaderValue(reqwest::header::InvalidHeaderValue),
   AuthHeaderMissing,
   RequestBuilderNotCloneable,
 }
@@ -20,6 +21,7 @@ impl Display for Error {
       Error::Reqwest(e) => std::fmt::Display::fmt(e, f),
       Error::DigestAuth(e) => std::fmt::Display::fmt(e, f),
       Error::ToStr(e) => std::fmt::Display::fmt(e, f),
+      Error::InvalidHeaderValue(e) => std::fmt::Display::fmt(e, f),
       Error::RequestBuilderNotCloneable => write!(f, "Request body must not be a stream."),
       Error::AuthHeaderMissing => write!(f, "The header 'www-authenticate' is missing."),
     }
@@ -43,5 +45,11 @@ impl From<digest_auth::Error> for Error {
 impl From<reqwest::header::ToStrError> for Error {
   fn from(e: ToStrError) -> Self {
     Error::ToStr(e)
+  }
+}
+
+impl From<reqwest::header::InvalidHeaderValue> for Error {
+  fn from(e: InvalidHeaderValue) -> Self {
+    Error::InvalidHeaderValue(e)
   }
 }
