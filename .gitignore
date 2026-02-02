@@ -3,3 +3,4 @@
 out/
 .DS_Store
 Cargo.lock
+CLAUDE.md
