@@ -1,15 +1,15 @@
 use digest_auth::AuthorizationHeader;
 use digest_auth::HttpMethod;
-use reqwest::header::HeaderMap;
 use reqwest::Method;
+use reqwest::header::HeaderMap;
 use url::Position;
 use url::Url;
 
-use crate::error::Error;
-use crate::error::Result;
 use crate::AuthContext;
 use crate::Error::AuthHeaderMissing;
 use crate::Error::RequestBuilderNotCloneable;
+use crate::error::Error;
+use crate::error::Result;
 
 pub(crate) const WWW_AUTHENTICATE: &str = "www-authenticate";
 

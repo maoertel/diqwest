@@ -216,11 +216,7 @@ impl DigestAuthCredentials for &DigestAuthSession {
   }
 
   fn clear_context(&self, host: &str) -> Result<()> {
-    self
-      .cache
-      .write()
-      .map_err(|_| Error::LockPoisoned)?
-      .remove(host);
+    self.cache.write().map_err(|_| Error::LockPoisoned)?.remove(host);
     Ok(())
   }
 }
