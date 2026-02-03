@@ -120,7 +120,7 @@ pub trait WithDigestAuth {
   ) -> impl Future<Output = Result<Response>> + Send;
 
   /// Sends the request with digest authentication.
-  #[deprecated(since = "4.0.0", note = "Use send_digest_auth instead")]
+  #[deprecated(since = "3.2.0", note = "Use send_digest_auth instead. Will be removed in 4.0.0.")]
   fn send_with_digest_auth(&self, username: &str, password: &str) -> impl Future<Output = Result<Response>> + Send;
 }
 
