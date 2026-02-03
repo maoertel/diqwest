@@ -171,14 +171,14 @@ impl DigestAuthSession {
     }
   }
 
-  /// Clears all cached authentication contexts.
-  pub fn clear_cache(&self) -> Result<()> {
+  /// Invalidates all cached authentication contexts.
+  pub fn invalidate_all(&self) -> Result<()> {
     self.cache.write().map_err(|_| Error::LockPoisoned)?.clear();
     Ok(())
   }
 
-  /// Removes cached context for a specific host.
-  pub fn clear_host(&self, host: &str) -> Result<()> {
+  /// Invalidates cached context for a specific host.
+  pub fn invalidate_host(&self, host: &str) -> Result<()> {
     self.cache.write().map_err(|_| Error::LockPoisoned)?.remove(host);
     Ok(())
   }
