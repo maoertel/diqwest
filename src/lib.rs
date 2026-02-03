@@ -130,25 +130,11 @@ impl WithDigestAuth for RequestBuilder {
     let host = request.url().host_str().ok_or(Error::MissingHost)?;
     let path = &request.url()[Position::AfterPort..];
     let method = HttpMethod::from(request.method().as_str());
+    let body = request.body().and_then(|b| b.as_bytes());
 
-    // Try preemptive auth if we have cached credentials
-    if credentials.cached_context(host)?.is_some() {
-      let body = request.body().and_then(|b| b.as_bytes());
-      let empty_headers = HeaderMap::new();
-      let answer = credentials.calculate_authorization(host, path, method, body, &empty_headers)?;
-
-      let mut headers = HeaderMap::new();
-      headers.insert(AUTHORIZATION, answer.to_header_string().parse()?);
-
-      let response = self.refresh()?.headers(headers).send().await?;
-
-      match response.status() {
-        StatusCode::UNAUTHORIZED => {
-          // Cache might be stale, fall through to normal flow
-          credentials.clear_context(host)?;
-        }
-        _ => return Ok(response),
-      }
+    if let PreemptiveAuthResult::Success(response) = try_preemptive_auth(self, &credentials, host, path, method, body).await?
+    {
+      return Ok(response);
     }
 
     // Normal flow: send without auth first
@@ -162,6 +148,46 @@ impl WithDigestAuth for RequestBuilder {
 
   async fn send_with_digest_auth(&self, username: &str, password: &str) -> Result<Response> {
     self.send_digest_auth(Credentials::new(username, password)).await
+  }
+}
+
+/// Result of attempting preemptive authentication with cached credentials.
+enum PreemptiveAuthResult {
+  /// Preemptive auth succeeded, return this response.
+  Success(Response),
+  /// Cache was stale (got 401), cleared cache, try normal flow.
+  CacheStale,
+  /// No cached credentials available.
+  NoCache,
+}
+
+/// Attempts preemptive authentication using cached credentials.
+async fn try_preemptive_auth<C: DigestAuthCredentials>(
+  request_builder: &RequestBuilder,
+  credentials: &C,
+  host: &str,
+  path: &str,
+  method: HttpMethod<'_>,
+  body: Option<&[u8]>,
+) -> Result<PreemptiveAuthResult> {
+  if credentials.cached_context(host)?.is_none() {
+    return Ok(PreemptiveAuthResult::NoCache);
+  }
+
+  let empty_headers = HeaderMap::new();
+  let answer = credentials.calculate_authorization(host, path, method, body, &empty_headers)?;
+
+  let mut headers = HeaderMap::new();
+  headers.insert(AUTHORIZATION, answer.to_header_string().parse()?);
+
+  let response = request_builder.refresh()?.headers(headers).send().await?;
+
+  match response.status() {
+    StatusCode::UNAUTHORIZED => {
+      credentials.clear_context(host)?;
+      Ok(PreemptiveAuthResult::CacheStale)
+    }
+    _ => Ok(PreemptiveAuthResult::Success(response)),
   }
 }
 
