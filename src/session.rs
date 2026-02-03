@@ -297,3 +297,25 @@ impl DigestAuthCredentials for &Credentials {
     Ok(()) // No caching support
   }
 }
+
+impl DigestAuthCredentials for (&str, &str) {
+  fn username(&self) -> &str {
+    self.0
+  }
+
+  fn password(&self) -> &str {
+    self.1
+  }
+
+  fn cached_context<'h>(&self, _host: &'h str) -> Result<Option<CachedContextGuard<'_, 'h>>> {
+    Ok(None)
+  }
+
+  fn store_context(&self, _host: &str, _www_authenticate: &str) -> Result<bool> {
+    Ok(false) // No caching support
+  }
+
+  fn clear_context(&self, _host: &str) -> Result<()> {
+    Ok(()) // No caching support
+  }
+}
