@@ -45,9 +45,8 @@ impl WithDigestAuth for RequestBuilder {
     let method = HttpMethod::from(request.method().as_str());
     let body = request.body().and_then(|b| b.as_bytes());
 
-    match try_preemptive_auth(self, &credentials, host, path, method, body)? {
-      PreemptiveAuthResult::Success(response) => return Ok(response),
-      PreemptiveAuthResult::CacheStale | PreemptiveAuthResult::NoCache => {}
+    if let PreemptiveAuthResult::Success(response) = try_preemptive_auth(self, &credentials, host, path, method, body)? {
+      return Ok(response);
     }
 
     // Normal flow: send without auth first
@@ -74,7 +73,6 @@ enum PreemptiveAuthResult {
   NoCache,
 }
 
-/// Attempts preemptive authentication using cached credentials.
 fn try_preemptive_auth<C: DigestAuthCredentials>(
   request_builder: &RequestBuilder,
   credentials: &C,
