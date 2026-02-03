@@ -1,11 +1,15 @@
-use digest_auth::{AuthorizationHeader, HttpMethod};
+use digest_auth::AuthorizationHeader;
+use digest_auth::HttpMethod;
 use reqwest::header::HeaderMap;
 use reqwest::Method;
-use url::{Position, Url};
+use url::Position;
+use url::Url;
 
-use crate::error::{Error, Result};
+use crate::error::Error;
+use crate::error::Result;
 use crate::AuthContext;
-use crate::Error::{AuthHeaderMissing, RequestBuilderNotCloneable};
+use crate::Error::AuthHeaderMissing;
+use crate::Error::RequestBuilderNotCloneable;
 
 pub(crate) trait TryClone {
   fn try_clone(&self) -> Option<Self>

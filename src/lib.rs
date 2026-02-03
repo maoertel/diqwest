@@ -67,16 +67,32 @@ pub mod session;
 
 use std::future::Future;
 
-use digest_auth::{AuthContext, HttpMethod};
-use reqwest::header::{HeaderMap, AUTHORIZATION};
-use reqwest::{Body, Method};
-use reqwest::{Request, RequestBuilder, Response, StatusCode};
-use url::{Position, Url};
+use digest_auth::AuthContext;
+use digest_auth::HttpMethod;
+use reqwest::header::HeaderMap;
+use reqwest::header::AUTHORIZATION;
+use reqwest::Body;
+use reqwest::Method;
+use reqwest::Request;
+use reqwest::RequestBuilder;
+use reqwest::Response;
+use reqwest::StatusCode;
+use url::Position;
+use url::Url;
 
-use crate::common::{get_answer, AsBytes, Build, CloneRequestBuilder, TryClone, WithHeaders, WithRequest};
-use crate::error::{Error, Result};
+use crate::common::get_answer;
+use crate::common::AsBytes;
+use crate::common::Build;
+use crate::common::CloneRequestBuilder;
+use crate::common::TryClone;
+use crate::common::WithHeaders;
+use crate::common::WithRequest;
+use crate::error::Error;
+use crate::error::Result;
 
-pub use crate::session::{DigestAuthCredentials, DigestAuthSession};
+pub use crate::session::Credentials;
+pub use crate::session::DigestAuthCredentials;
+pub use crate::session::DigestAuthSession;
 
 /// A trait to extend the functionality of an async `RequestBuilder` to send a request with digest auth flow.
 ///
@@ -118,10 +134,10 @@ impl WithDigestAuth for RequestBuilder {
     let method = HttpMethod::from(request.method().as_str());
 
     // Try preemptive auth if we have cached credentials
-    if credentials.cached_context(&host).is_some() {
+    if credentials.cached_context(&host)?.is_some() {
       let body = request.body().and_then(|b| b.as_bytes());
       let empty_headers = HeaderMap::new();
-      let (answer, _) = credentials.calculate_authorization(&host, path, method, body, &empty_headers)?;
+      let answer = credentials.calculate_authorization(&host, path, method, body, &empty_headers)?;
 
       let mut headers = HeaderMap::new();
       headers.insert(AUTHORIZATION, answer.to_header_string().parse()?);
@@ -150,7 +166,7 @@ impl WithDigestAuth for RequestBuilder {
   }
 
   async fn send_with_digest_auth(&self, username: &str, password: &str) -> Result<Response> {
-    self.send_digest_auth((username, password)).await
+    self.send_digest_auth(Credentials::new(username, password)).await
   }
 }
 
@@ -229,12 +245,18 @@ impl WithHeaders for Response {
 #[cfg(test)]
 mod tests {
   use crate::common::parse_digest_auth_header;
-  use crate::{DigestAuthSession, WithDigestAuth};
+  use crate::Credentials;
+  use crate::DigestAuthSession;
+  use crate::WithDigestAuth;
 
   use digest_auth::HttpMethod;
-  use mockito::{Mock, Server};
-  use reqwest::header::{HeaderMap, HeaderValue};
-  use reqwest::{Client, RequestBuilder, StatusCode};
+  use mockito::Mock;
+  use mockito::Server;
+  use reqwest::header::HeaderMap;
+  use reqwest::header::HeaderValue;
+  use reqwest::Client;
+  use reqwest::RequestBuilder;
+  use reqwest::StatusCode;
 
   const PATH: &str = "/test";
   const WWW_AUTHENTICATE: &str = "Digest realm=\"testrealm@host.com\",qop=\"auth,auth-int\",nonce=\"dcd98b7102dd2f0e8b11d0f600bfb0c093\",opaque=\"5ccc069c403ebaf9f0171e9517f40e41\"";
@@ -249,7 +271,7 @@ mod tests {
     let mock = server.mock("GET", PATH).with_status(200).create();
     let request = create_request(&server);
 
-    let response = request.send_digest_auth(("username", "password")).await.unwrap();
+    let response = request.send_digest_auth(Credentials::new("username", "password")).await.unwrap();
 
     Mock::assert(&mock);
     assert_eq!(&response.status(), &StatusCode::OK);
@@ -261,7 +283,7 @@ mod tests {
     let mock = server.mock("GET", PATH).with_status(401).create();
     let request = create_request(&server);
 
-    let response = request.send_digest_auth(("username", "password")).await.unwrap();
+    let response = request.send_digest_auth(Credentials::new("username", "password")).await.unwrap();
 
     Mock::assert(&mock);
     assert_eq!(&response.status(), &StatusCode::UNAUTHORIZED);
@@ -287,7 +309,7 @@ mod tests {
 
     let request = create_request(&server);
 
-    let response = request.send_digest_auth(("username", "password")).await.unwrap();
+    let response = request.send_digest_auth(Credentials::new("username", "password")).await.unwrap();
 
     Mock::assert(&first_request);
     Mock::assert(&second_request);

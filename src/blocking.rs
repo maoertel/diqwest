@@ -1,10 +1,22 @@
 use digest_auth::HttpMethod;
-use reqwest::blocking::{Body, Request, RequestBuilder, Response};
-use reqwest::header::{HeaderMap, AUTHORIZATION};
-use reqwest::{Method, StatusCode};
-use url::{Position, Url};
+use reqwest::blocking::Body;
+use reqwest::blocking::Request;
+use reqwest::blocking::RequestBuilder;
+use reqwest::blocking::Response;
+use reqwest::header::HeaderMap;
+use reqwest::header::AUTHORIZATION;
+use reqwest::Method;
+use reqwest::StatusCode;
+use url::Position;
+use url::Url;
 
-use crate::common::{get_answer, AsBytes, Build, CloneRequestBuilder, TryClone, WithHeaders, WithRequest};
+use crate::common::get_answer;
+use crate::common::AsBytes;
+use crate::common::Build;
+use crate::common::CloneRequestBuilder;
+use crate::common::TryClone;
+use crate::common::WithHeaders;
+use crate::common::WithRequest;
 use crate::error::Result;
 use crate::session::DigestAuthCredentials;
 
@@ -31,10 +43,10 @@ impl WithDigestAuth for RequestBuilder {
     let method = HttpMethod::from(request.method().as_str());
 
     // Try preemptive auth if we have cached credentials
-    if credentials.cached_context(&host).is_some() {
+    if credentials.cached_context(&host)?.is_some() {
       let body = request.body().and_then(|b| b.as_bytes());
       let empty_headers = HeaderMap::new();
-      let (answer, _) = credentials.calculate_authorization(&host, path, method, body, &empty_headers)?;
+      let answer = credentials.calculate_authorization(&host, path, method, body, &empty_headers)?;
 
       let mut headers = HeaderMap::new();
       headers.insert(AUTHORIZATION, answer.to_header_string().parse()?);
@@ -62,7 +74,7 @@ impl WithDigestAuth for RequestBuilder {
   }
 
   fn send_with_digest_auth(&self, username: &str, password: &str) -> Result<Response> {
-    self.send_digest_auth((username, password))
+    self.send_digest_auth(crate::Credentials::new(username, password))
   }
 }
 
@@ -141,12 +153,16 @@ impl WithHeaders for Response {
 mod tests {
   use crate::blocking::WithDigestAuth;
   use crate::common::parse_digest_auth_header;
+  use crate::Credentials;
   use crate::DigestAuthSession;
 
   use digest_auth::HttpMethod;
-  use mockito::{Mock, Server};
-  use reqwest::blocking::{Client, RequestBuilder};
-  use reqwest::header::{HeaderMap, HeaderValue};
+  use mockito::Mock;
+  use mockito::Server;
+  use reqwest::blocking::Client;
+  use reqwest::blocking::RequestBuilder;
+  use reqwest::header::HeaderMap;
+  use reqwest::header::HeaderValue;
   use reqwest::StatusCode;
 
   const PATH: &str = "/test";
@@ -162,7 +178,7 @@ mod tests {
     let mock = server.mock("GET", PATH).with_status(200).create();
     let request = create_request(&server);
 
-    let response = request.send_digest_auth(("username", "password")).unwrap();
+    let response = request.send_digest_auth(Credentials::new("username", "password")).unwrap();
 
     Mock::assert(&mock);
     assert_eq!(&response.status(), &StatusCode::OK);
@@ -174,7 +190,7 @@ mod tests {
     let mock = server.mock("GET", PATH).with_status(401).create();
     let request = create_request(&server);
 
-    let response = request.send_digest_auth(("username", "password")).unwrap();
+    let response = request.send_digest_auth(Credentials::new("username", "password")).unwrap();
 
     Mock::assert(&mock);
     assert_eq!(&response.status(), &StatusCode::UNAUTHORIZED);
@@ -200,7 +216,7 @@ mod tests {
 
     let request = create_request(&server);
 
-    let response = request.send_digest_auth(("username", "password")).unwrap();
+    let response = request.send_digest_auth(Credentials::new("username", "password")).unwrap();
 
     Mock::assert(&first_request);
     Mock::assert(&second_request);

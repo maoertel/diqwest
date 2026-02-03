@@ -1,7 +1,10 @@
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::Debug;
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::result;
 
-use reqwest::header::{InvalidHeaderValue, ToStrError};
+use reqwest::header::InvalidHeaderValue;
+use reqwest::header::ToStrError;
 
 #[derive(Debug)]
 pub enum Error {
@@ -11,6 +14,7 @@ pub enum Error {
   InvalidHeaderValue(reqwest::header::InvalidHeaderValue),
   AuthHeaderMissing,
   RequestBuilderNotCloneable,
+  LockPoisoned,
 }
 
 pub type Result<T> = result::Result<T, Error>;
@@ -24,6 +28,7 @@ impl Display for Error {
       Error::InvalidHeaderValue(e) => std::fmt::Display::fmt(e, f),
       Error::RequestBuilderNotCloneable => write!(f, "Request body must not be a stream."),
       Error::AuthHeaderMissing => write!(f, "The header 'www-authenticate' is missing."),
+      Error::LockPoisoned => write!(f, "Lock was poisoned by a panicked thread."),
     }
   }
 }
