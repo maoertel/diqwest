@@ -17,6 +17,7 @@ use crate::common::CloneRequestBuilder;
 use crate::common::TryClone;
 use crate::common::WithHeaders;
 use crate::common::WithRequest;
+use crate::common::WWW_AUTHENTICATE;
 use crate::error::Result;
 use crate::session::DigestAuthCredentials;
 
@@ -38,7 +39,7 @@ pub trait WithDigestAuth {
 impl WithDigestAuth for RequestBuilder {
   fn send_digest_auth<C: DigestAuthCredentials>(&self, credentials: C) -> Result<Response> {
     let request = self.refresh()?.build()?;
-    let host = request.url().host_str().unwrap_or("").to_string();
+    let host = request.url().host_str().unwrap_or("");
     let path = &request.url()[Position::AfterPort..];
     let method = HttpMethod::from(request.method().as_str());
 
@@ -56,7 +57,7 @@ impl WithDigestAuth for RequestBuilder {
       match response.status() {
         StatusCode::UNAUTHORIZED => {
           // Cache might be stale, fall through to normal flow
-          let _ = credentials.store_context(&host, "");
+          credentials.clear_context(&host)?;
         }
         _ => return Ok(response),
       }
@@ -84,11 +85,11 @@ fn try_digest_auth_with_credentials<C: DigestAuthCredentials>(
   host: &str,
   credentials: C,
 ) -> Result<Response> {
-  // Store the www-authenticate header for caching
-  if let Some(www_auth) = first_response.headers().get("www-authenticate")
+  // Store the www-authenticate header for caching (best-effort, ignore parse errors)
+  if let Some(www_auth) = first_response.headers().get(WWW_AUTHENTICATE)
     && let Ok(www_auth_str) = www_auth.to_str()
   {
-    let _ = credentials.store_context(host, www_auth_str);
+    credentials.store_context(host, www_auth_str)?;
   }
 
   if let Some(answer) = get_answer(

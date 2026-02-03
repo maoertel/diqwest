@@ -64,7 +64,11 @@ pub trait DigestAuthCredentials {
   fn cached_context<'h>(&self, host: &'h str) -> Result<Option<CachedContextGuard<'_, 'h>>>;
 
   /// Stores auth context for a host after successful authentication.
-  fn store_context(&self, host: &str, www_authenticate: &str) -> Result<()>;
+  /// Returns Ok(true) if stored, Ok(false) if parse failed (non-fatal).
+  fn store_context(&self, host: &str, www_authenticate: &str) -> Result<bool>;
+
+  /// Clears cached context for a host.
+  fn clear_context(&self, host: &str) -> Result<()>;
 
   /// Calculates the authorization header, using cache if available.
   fn calculate_authorization(
@@ -200,13 +204,25 @@ impl DigestAuthCredentials for &DigestAuthSession {
     Ok(None)
   }
 
-  fn store_context(&self, host: &str, www_authenticate: &str) -> Result<()> {
-    let ctx = DigestAuthContext::from_header(www_authenticate)?;
+  fn store_context(&self, host: &str, www_authenticate: &str) -> Result<bool> {
+    let ctx = match DigestAuthContext::from_header(www_authenticate) {
+      Ok(ctx) => ctx,
+      Err(_) => return Ok(false), // Parse error is non-fatal
+    };
     self
       .cache
       .write()
       .map_err(|_| Error::LockPoisoned)?
       .insert(host.to_string(), ctx);
+    Ok(true)
+  }
+
+  fn clear_context(&self, host: &str) -> Result<()> {
+    self
+      .cache
+      .write()
+      .map_err(|_| Error::LockPoisoned)?
+      .remove(host);
     Ok(())
   }
 }
@@ -251,8 +267,12 @@ impl DigestAuthCredentials for Credentials {
     Ok(None)
   }
 
-  fn store_context(&self, _host: &str, _www_authenticate: &str) -> Result<()> {
-    Ok(())
+  fn store_context(&self, _host: &str, _www_authenticate: &str) -> Result<bool> {
+    Ok(false) // No caching support
+  }
+
+  fn clear_context(&self, _host: &str) -> Result<()> {
+    Ok(()) // No caching support
   }
 }
 
@@ -269,7 +289,11 @@ impl DigestAuthCredentials for &Credentials {
     Ok(None)
   }
 
-  fn store_context(&self, _host: &str, _www_authenticate: &str) -> Result<()> {
-    Ok(())
+  fn store_context(&self, _host: &str, _www_authenticate: &str) -> Result<bool> {
+    Ok(false) // No caching support
+  }
+
+  fn clear_context(&self, _host: &str) -> Result<()> {
+    Ok(()) // No caching support
   }
 }
