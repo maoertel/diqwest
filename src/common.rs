@@ -1,11 +1,17 @@
-use digest_auth::{AuthorizationHeader, HttpMethod};
+use digest_auth::AuthorizationHeader;
+use digest_auth::HttpMethod;
 use reqwest::header::HeaderMap;
 use reqwest::Method;
-use url::{Position, Url};
+use url::Position;
+use url::Url;
 
-use crate::error::{Error, Result};
+use crate::error::Error;
+use crate::error::Result;
 use crate::AuthContext;
-use crate::Error::{AuthHeaderMissing, RequestBuilderNotCloneable};
+use crate::Error::AuthHeaderMissing;
+use crate::Error::RequestBuilderNotCloneable;
+
+pub(crate) const WWW_AUTHENTICATE: &str = "www-authenticate";
 
 pub(crate) trait TryClone {
   fn try_clone(&self) -> Option<Self>
@@ -59,7 +65,7 @@ pub(crate) fn parse_digest_auth_header(
   username: &str,
   password: &str,
 ) -> Result<AuthorizationHeader> {
-  let www_auth = header.get("www-authenticate").ok_or(Error::AuthHeaderMissing)?.to_str()?;
+  let www_auth = header.get(WWW_AUTHENTICATE).ok_or(Error::AuthHeaderMissing)?.to_str()?;
   let context = AuthContext::new_with_method(username, password, path, body, method);
   let mut prompt = digest_auth::parse(www_auth)?;
 
