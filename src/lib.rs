@@ -3,89 +3,176 @@
 //! When you send a request with digest auth flow this first request will be executed. In case
 //! the response is a `401` the `www-authenticate` header is parsed and the answer is calculated.
 //! The initial request is executed again with additional `Authorization` header. The response
-//! will be returned from `send_with_digest_auth()`.
+//! will be returned from `send_digest_auth()`.
 //!
 //! In case the first response is not a `401` this first response is returned from
-//! `send_with_digest_auth()` without any manipulation. In case the first response is a `401`
+//! `send_digest_auth()` without any manipulation. In case the first response is a `401`
 //! but the `www-authenticate` header is missing the first reponse is returned as well.
-//!
-//! `diqwest` is a lean crate and has nearly no dependencies:
-//! - `reqwest`, for sure, as `diqwest` is an extension to it. Without any enabled features and no default features.
-//! - `digest_auth` is used to calculate the answer. Without any enabled feature and no default features.
-//! - `url` is used to validate urls on type level. Without any enabled feature and no default features.
-//!
-//! That's it. No other dependencies are used. Not even `thiserror` is used to not force it on you.
 //!
 //! # Examples
 //!
-//! By default this crate works async:
+//! ## Simple usage (no caching)
 //!
-//! ```compile_fail
+//! ```ignore
 //! use diqwest::WithDigestAuth;
-//! use reqwest::{Client, Response};
+//! use reqwest::Client;
 //!
-//! // Call `.send_with_digest_auth()` on `RequestBuilder` like `send()`
-//! let response: Response = Client::new()
-//!   .get("url")
-//!   .send_with_digest_auth("username", "password")
+//! let response = Client::new()
+//!   .get("https://example.com/api")
+//!   .send_digest_auth(("username", "password"))
+//!   .await?;
+//! ```
+//!
+//! ## With session (caching)
+//!
+//! Use `DigestAuthSession` when making multiple requests to the same server
+//! to avoid the 401 challenge on subsequent requests:
+//!
+//! ```ignore
+//! use diqwest::{WithDigestAuth, DigestAuthSession};
+//! use reqwest::Client;
+//!
+//! let client = Client::new();
+//! let session = DigestAuthSession::new("username", "password");
+//!
+//! // First request: 401 -> auth -> 200 (credentials cached)
+//! let resp1 = client.get("https://example.com/api")
+//!   .send_digest_auth(&session)
 //!   .await?;
 //!
+//! // Subsequent requests: preemptive auth -> 200 (no 401 challenge)
+//! let resp2 = client.get("https://example.com/other")
+//!   .send_digest_auth(&session)
+//!   .await?;
 //! ```
 //!
-//! In case you need blocking behavior enable the `blocking` feature in your `Cargo.toml`.
+//! ## Blocking
 //!
-//! ```compile_fail
+//! Enable the `blocking` feature in your `Cargo.toml`:
+//!
+//! ```ignore
 //! use diqwest::blocking::WithDigestAuth;
-//! use reqwest::blocking::{Client, Response};
+//! use reqwest::blocking::Client;
 //!
-//! // Call `.send_with_digest_auth()` on `RequestBuilder` like `send()`
-//! let response: Response = Client::new()
-//!   .get("url")
-//!   .send_with_digest_auth("username", "password")?;
-//!
+//! let response = Client::new()
+//!   .get("https://example.com/api")
+//!   .send_digest_auth(("username", "password"))?;
 //! ```
-//!
 
 #[cfg(feature = "blocking")]
 pub mod blocking;
 pub mod common;
 pub mod error;
+pub mod session;
 
 use std::future::Future;
 
-use digest_auth::AuthContext;
+use digest_auth::{AuthContext, HttpMethod};
 use reqwest::header::{HeaderMap, AUTHORIZATION};
 use reqwest::{Body, Method};
 use reqwest::{Request, RequestBuilder, Response, StatusCode};
-use url::Url;
+use url::{Position, Url};
 
 use crate::common::{get_answer, AsBytes, Build, CloneRequestBuilder, TryClone, WithHeaders, WithRequest};
 use crate::error::{Error, Result};
+
+pub use crate::session::{DigestAuthCredentials, DigestAuthSession};
 
 /// A trait to extend the functionality of an async `RequestBuilder` to send a request with digest auth flow.
 ///
 /// Call it at the end of your `RequestBuilder` chain like you would use `send()`.
 pub trait WithDigestAuth {
+  /// Sends the request with digest authentication.
+  ///
+  /// Accepts either a tuple of credentials `("username", "password")` for simple usage,
+  /// or a `&DigestAuthSession` for cached authentication.
+  ///
+  /// # Example
+  ///
+  /// ```ignore
+  /// // Simple (no caching)
+  /// request.send_digest_auth(("user", "pass")).await?;
+  ///
+  /// // With session (caching)
+  /// let session = DigestAuthSession::new("user", "pass");
+  /// request.send_digest_auth(&session).await?;
+  /// ```
+  fn send_digest_auth<C: DigestAuthCredentials + Send + Sync>(
+    &self,
+    credentials: C,
+  ) -> impl Future<Output = Result<Response>> + Send;
+
+  /// Sends the request with digest authentication.
+  #[deprecated(since = "4.0.0", note = "Use send_digest_auth instead")]
   fn send_with_digest_auth(&self, username: &str, password: &str) -> impl Future<Output = Result<Response>> + Send;
 }
 
 impl WithDigestAuth for RequestBuilder {
-  async fn send_with_digest_auth(&self, username: &str, password: &str) -> Result<Response> {
+  async fn send_digest_auth<C: DigestAuthCredentials + Send + Sync>(
+    &self,
+    credentials: C,
+  ) -> Result<Response> {
+    let request = self.refresh()?.build()?;
+    let host = request.url().host_str().unwrap_or("").to_string();
+    let path = &request.url()[Position::AfterPort..];
+    let method = HttpMethod::from(request.method().as_str());
+
+    // Try preemptive auth if we have cached credentials
+    if credentials.cached_context(&host).is_some() {
+      let body = request.body().and_then(|b| b.as_bytes());
+      let empty_headers = HeaderMap::new();
+      let (answer, _) = credentials.calculate_authorization(&host, path, method, body, &empty_headers)?;
+
+      let mut headers = HeaderMap::new();
+      headers.insert(AUTHORIZATION, answer.to_header_string().parse()?);
+
+      let response = self.refresh()?.headers(headers).send().await?;
+
+      match response.status() {
+        StatusCode::UNAUTHORIZED => {
+          // Cache might be stale, fall through to normal flow
+          // Clear the stale cache for this host
+          let _ = credentials.store_context(&host, "");
+        }
+        _ => return Ok(response),
+      }
+    }
+
+    // Normal flow: send without auth first
     let first_response = self.refresh()?.send().await?;
+
     match first_response.status() {
-      StatusCode::UNAUTHORIZED => try_digest_auth(self, first_response, username, password).await,
+      StatusCode::UNAUTHORIZED => {
+        try_digest_auth_with_credentials(self, first_response, &host, credentials).await
+      }
       _ => Ok(first_response),
     }
   }
+
+  async fn send_with_digest_auth(&self, username: &str, password: &str) -> Result<Response> {
+    self.send_digest_auth((username, password)).await
+  }
 }
 
-async fn try_digest_auth(
+async fn try_digest_auth_with_credentials<C: DigestAuthCredentials>(
   request_builder: &RequestBuilder,
   first_response: Response,
-  username: &str,
-  password: &str,
+  host: &str,
+  credentials: C,
 ) -> Result<Response> {
-  if let Some(answer) = get_answer(request_builder, first_response.headers(), username, password)? {
+  // Store the www-authenticate header for caching
+  if let Some(www_auth) = first_response.headers().get("www-authenticate")
+    && let Ok(www_auth_str) = www_auth.to_str()
+  {
+    let _ = credentials.store_context(host, www_auth_str);
+  }
+
+  if let Some(answer) = get_answer(
+    request_builder,
+    first_response.headers(),
+    credentials.username(),
+    credentials.password(),
+  )? {
     let mut headers = HeaderMap::new();
     headers.insert(AUTHORIZATION, answer.to_header_string().parse()?);
 
@@ -142,7 +229,7 @@ impl WithHeaders for Response {
 #[cfg(test)]
 mod tests {
   use crate::common::parse_digest_auth_header;
-  use crate::WithDigestAuth;
+  use crate::{DigestAuthSession, WithDigestAuth};
 
   use digest_auth::HttpMethod;
   use mockito::{Mock, Server};
@@ -150,6 +237,7 @@ mod tests {
   use reqwest::{Client, RequestBuilder, StatusCode};
 
   const PATH: &str = "/test";
+  const WWW_AUTHENTICATE: &str = "Digest realm=\"testrealm@host.com\",qop=\"auth,auth-int\",nonce=\"dcd98b7102dd2f0e8b11d0f600bfb0c093\",opaque=\"5ccc069c403ebaf9f0171e9517f40e41\"";
 
   fn create_request(server: &Server) -> RequestBuilder {
     Client::new().get(format!("{domain}{PATH}", domain = server.url()))
@@ -157,47 +245,39 @@ mod tests {
 
   #[tokio::test]
   async fn given_non_digest_auth_endpoint_when_send_with_da_then_request_executed_normally() {
-    // Given I have a GET request against a non digest auth endpoint
     let mut server = mockito::Server::new_async().await;
     let mock = server.mock("GET", PATH).with_status(200).create();
     let request = create_request(&server);
 
-    // When I send with digest auth
-    let response = request.send_with_digest_auth("username", "password").await.unwrap();
+    let response = request.send_digest_auth(("username", "password")).await.unwrap();
 
-    // Then the response's status is OK
     Mock::assert(&mock);
     assert_eq!(&response.status(), &StatusCode::OK);
   }
 
   #[tokio::test]
   async fn given_non_digest_auth_endpoint_unauthorized_when_send_with_da_then_request_fails_with_401() {
-    // Given I have a GET request against a non digest auth  but authorized endpoint
     let mut server = mockito::Server::new_async().await;
     let mock = server.mock("GET", PATH).with_status(401).create();
     let request = create_request(&server);
 
-    // When I send with digest auth
-    let response = request.send_with_digest_auth("username", "password").await.unwrap();
+    let response = request.send_digest_auth(("username", "password")).await.unwrap();
 
-    // Then the response's final status is UNAUTHORIZED
     Mock::assert(&mock);
     assert_eq!(&response.status(), &StatusCode::UNAUTHORIZED);
   }
 
   #[tokio::test]
   async fn given_digest_auth_endpoint_authorized_when_send_with_da_then_request_succeeds() {
-    // Given I have a GET request against a digest auth endpoint with valid 'www-authenticate' header
     let mut server = mockito::Server::new_async().await;
-    let www_authenticate = "Digest realm=\"testrealm@host.com\",qop=\"auth,auth-int\",nonce=\"dcd98b7102dd2f0e8b11d0f600bfb0c093\",opaque=\"5ccc069c403ebaf9f0171e9517f40e41\"";
     let mut header = HeaderMap::new();
-    header.insert("www-authenticate", HeaderValue::from_static(www_authenticate));
+    header.insert("www-authenticate", HeaderValue::from_static(WWW_AUTHENTICATE));
     let auth_header = parse_digest_auth_header(&header, PATH, HttpMethod::GET, None, "username", "password").unwrap();
 
     let first_request = server
       .mock("GET", PATH)
       .with_status(401)
-      .with_header("www-authenticate", www_authenticate)
+      .with_header("www-authenticate", WWW_AUTHENTICATE)
       .create();
     let second_request = server
       .mock("GET", PATH)
@@ -207,12 +287,75 @@ mod tests {
 
     let request = create_request(&server);
 
-    // When I send with digest auth
-    let response = request.send_with_digest_auth("username", "password").await.unwrap();
+    let response = request.send_digest_auth(("username", "password")).await.unwrap();
 
-    // Then the response's final status is OK
     Mock::assert(&first_request);
     Mock::assert(&second_request);
+    assert_eq!(&response.status(), &StatusCode::OK);
+  }
+
+  #[tokio::test]
+  async fn given_session_second_request_uses_cached_credentials() {
+    let mut server = mockito::Server::new_async().await;
+    let session = DigestAuthSession::new("username", "password");
+
+    // First request: expect 401 then authenticated request
+    let first_401 = server
+      .mock("GET", PATH)
+      .with_status(401)
+      .with_header("www-authenticate", WWW_AUTHENTICATE)
+      .expect(1)
+      .create();
+
+    let first_success = server
+      .mock("GET", PATH)
+      .match_header("Authorization", mockito::Matcher::Regex(r"Digest.*".to_string()))
+      .with_status(200)
+      .expect(1)
+      .create();
+
+    let request1 = create_request(&server);
+    let response1 = request1.send_digest_auth(&session).await.unwrap();
+    assert_eq!(response1.status(), StatusCode::OK);
+
+    Mock::assert(&first_401);
+    Mock::assert(&first_success);
+
+    // Second request: should use cached credentials (preemptive auth)
+    // This mock should NOT be hit if caching works
+    let second_401 = server
+      .mock("GET", PATH)
+      .with_status(401)
+      .with_header("www-authenticate", WWW_AUTHENTICATE)
+      .expect(0)
+      .create();
+
+    let second_success = server
+      .mock("GET", PATH)
+      .match_header("Authorization", mockito::Matcher::Regex(r"Digest.*".to_string()))
+      .with_status(200)
+      .expect(1)
+      .create();
+
+    let request2 = create_request(&server);
+    let response2 = request2.send_digest_auth(&session).await.unwrap();
+    assert_eq!(response2.status(), StatusCode::OK);
+
+    Mock::assert(&second_401);
+    Mock::assert(&second_success);
+  }
+
+  // Test deprecated method still works
+  #[tokio::test]
+  #[allow(deprecated)]
+  async fn deprecated_method_still_works() {
+    let mut server = mockito::Server::new_async().await;
+    let mock = server.mock("GET", PATH).with_status(200).create();
+    let request = create_request(&server);
+
+    let response = request.send_with_digest_auth("username", "password").await.unwrap();
+
+    Mock::assert(&mock);
     assert_eq!(&response.status(), &StatusCode::OK);
   }
 }
