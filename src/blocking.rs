@@ -49,7 +49,6 @@ impl WithDigestAuth for RequestBuilder {
       return Ok(response);
     }
 
-    // Normal flow: send without auth first
     let first_response = self.refresh()?.send()?;
 
     match first_response.status() {
