@@ -1,66 +1,26 @@
 use digest_auth::HttpMethod;
+use reqwest::Method;
+use reqwest::StatusCode;
 use reqwest::blocking::Body;
 use reqwest::blocking::Request;
 use reqwest::blocking::RequestBuilder;
 use reqwest::blocking::Response;
-use reqwest::header::HeaderMap;
 use reqwest::header::AUTHORIZATION;
-use reqwest::Method;
-use reqwest::StatusCode;
+use reqwest::header::HeaderMap;
 use url::Position;
 use url::Url;
 
-use crate::common::get_answer;
 use crate::common::AsBytes;
 use crate::common::Build;
 use crate::common::CloneRequestBuilder;
 use crate::common::TryClone;
+use crate::common::WWW_AUTHENTICATE;
 use crate::common::WithHeaders;
 use crate::common::WithRequest;
-use crate::common::WWW_AUTHENTICATE;
+use crate::common::get_answer;
 use crate::error::Error;
 use crate::error::Result;
 use crate::session::DigestAuthCredentials;
-
-/// Result of attempting preemptive authentication with cached credentials.
-enum PreemptiveAuthResult {
-  /// Preemptive auth succeeded, return this response.
-  Success(Response),
-  /// Cache was stale (got 401), cleared cache, try normal flow.
-  CacheStale,
-  /// No cached credentials available.
-  NoCache,
-}
-
-/// Attempts preemptive authentication using cached credentials.
-fn try_preemptive_auth<C: DigestAuthCredentials>(
-  request_builder: &RequestBuilder,
-  credentials: &C,
-  host: &str,
-  path: &str,
-  method: HttpMethod<'_>,
-  body: Option<&[u8]>,
-) -> Result<PreemptiveAuthResult> {
-  if credentials.cached_context(host)?.is_none() {
-    return Ok(PreemptiveAuthResult::NoCache);
-  }
-
-  let empty_headers = HeaderMap::new();
-  let answer = credentials.calculate_authorization(host, path, method, body, &empty_headers)?;
-
-  let mut headers = HeaderMap::new();
-  headers.insert(AUTHORIZATION, answer.to_header_string().parse()?);
-
-  let response = request_builder.refresh()?.headers(headers).send()?;
-
-  match response.status() {
-    StatusCode::UNAUTHORIZED => {
-      credentials.clear_context(host)?;
-      Ok(PreemptiveAuthResult::CacheStale)
-    }
-    _ => Ok(PreemptiveAuthResult::Success(response)),
-  }
-}
 
 /// A trait to extend the functionality of a blocking `RequestBuilder` to send a request with digest auth flow.
 ///
@@ -104,6 +64,46 @@ impl WithDigestAuth for RequestBuilder {
   }
 }
 
+/// Result of attempting preemptive authentication with cached credentials.
+enum PreemptiveAuthResult {
+  /// Preemptive auth succeeded, return this response.
+  Success(Response),
+  /// Cache was stale (got 401), cleared cache, try normal flow.
+  CacheStale,
+  /// No cached credentials available.
+  NoCache,
+}
+
+/// Attempts preemptive authentication using cached credentials.
+fn try_preemptive_auth<C: DigestAuthCredentials>(
+  request_builder: &RequestBuilder,
+  credentials: &C,
+  host: &str,
+  path: &str,
+  method: HttpMethod<'_>,
+  body: Option<&[u8]>,
+) -> Result<PreemptiveAuthResult> {
+  if credentials.cached_context(host)?.is_none() {
+    return Ok(PreemptiveAuthResult::NoCache);
+  }
+
+  let empty_headers = HeaderMap::new();
+  let answer = credentials.calculate_authorization(host, path, method, body, &empty_headers)?;
+
+  let mut headers = HeaderMap::new();
+  headers.insert(AUTHORIZATION, answer.to_header_string().parse()?);
+
+  let response = request_builder.refresh()?.headers(headers).send()?;
+
+  match response.status() {
+    StatusCode::UNAUTHORIZED => {
+      credentials.clear_context(host)?;
+      Ok(PreemptiveAuthResult::CacheStale)
+    }
+    _ => Ok(PreemptiveAuthResult::Success(response)),
+  }
+}
+
 fn try_digest_auth_with_credentials<C: DigestAuthCredentials>(
   request_builder: &RequestBuilder,
   first_response: Response,
@@ -126,12 +126,7 @@ fn try_digest_auth_with_credentials<C: DigestAuthCredentials>(
     let mut headers = HeaderMap::new();
     headers.insert(AUTHORIZATION, answer.to_header_string().parse()?);
 
-    return Ok(
-      request_builder
-        .refresh()?
-        .headers(headers)
-        .send()?,
-    );
+    return Ok(request_builder.refresh()?.headers(headers).send()?);
   }
 
   Ok(first_response)
@@ -177,19 +172,19 @@ impl WithHeaders for Response {
 
 #[cfg(test)]
 mod tests {
-  use crate::blocking::WithDigestAuth;
-  use crate::common::parse_digest_auth_header;
   use crate::Credentials;
   use crate::DigestAuthSession;
+  use crate::blocking::WithDigestAuth;
+  use crate::common::parse_digest_auth_header;
 
   use digest_auth::HttpMethod;
   use mockito::Mock;
   use mockito::Server;
+  use reqwest::StatusCode;
   use reqwest::blocking::Client;
   use reqwest::blocking::RequestBuilder;
   use reqwest::header::HeaderMap;
   use reqwest::header::HeaderValue;
-  use reqwest::StatusCode;
 
   const PATH: &str = "/test";
   const WWW_AUTHENTICATE: &str = "Digest realm=\"testrealm@host.com\",qop=\"auth,auth-int\",nonce=\"dcd98b7102dd2f0e8b11d0f600bfb0c093\",opaque=\"5ccc069c403ebaf9f0171e9517f40e41\"";
