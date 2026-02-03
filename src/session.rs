@@ -18,7 +18,7 @@ pub struct DigestAuthContext {
   pub(crate) nonce: String,
   pub(crate) realm: String,
   pub(crate) opaque: Option<String>,
-  pub(crate) qop: Option<String>,
+  pub(crate) qop: Option<&'static str>,
   pub(crate) nc: AtomicU32,
 }
 
@@ -29,8 +29,8 @@ impl DigestAuthContext {
     // Convert Qop to string - take the first qop option
     let qop = prompt.qop.and_then(|qops| {
       qops.first().map(|q| match q {
-        digest_auth::Qop::AUTH => "auth".to_string(),
-        digest_auth::Qop::AUTH_INT => "auth-int".to_string(),
+        digest_auth::Qop::AUTH => "auth",
+        digest_auth::Qop::AUTH_INT => "auth-int",
       })
     });
     Ok(Self {
