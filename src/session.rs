@@ -107,7 +107,7 @@ impl<'a, 'h> CachedContextGuard<'a, 'h> {
   }
 
   pub(crate) fn qop(&self) -> Option<&str> {
-    self.ctx.get(self.host).unwrap().qop.as_deref()
+    self.ctx.get(self.host).unwrap().qop
   }
 
   pub(crate) fn next_nc(&self) -> u32 {

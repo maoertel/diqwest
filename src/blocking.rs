@@ -18,6 +18,7 @@ use crate::common::TryClone;
 use crate::common::WithHeaders;
 use crate::common::WithRequest;
 use crate::common::WWW_AUTHENTICATE;
+use crate::error::Error;
 use crate::error::Result;
 use crate::session::DigestAuthCredentials;
 
@@ -39,15 +40,15 @@ pub trait WithDigestAuth {
 impl WithDigestAuth for RequestBuilder {
   fn send_digest_auth<C: DigestAuthCredentials>(&self, credentials: C) -> Result<Response> {
     let request = self.refresh()?.build()?;
-    let host = request.url().host_str().unwrap_or("");
+    let host = request.url().host_str().ok_or(Error::MissingHost)?;
     let path = &request.url()[Position::AfterPort..];
     let method = HttpMethod::from(request.method().as_str());
 
     // Try preemptive auth if we have cached credentials
-    if credentials.cached_context(&host)?.is_some() {
+    if credentials.cached_context(host)?.is_some() {
       let body = request.body().and_then(|b| b.as_bytes());
       let empty_headers = HeaderMap::new();
-      let answer = credentials.calculate_authorization(&host, path, method, body, &empty_headers)?;
+      let answer = credentials.calculate_authorization(host, path, method, body, &empty_headers)?;
 
       let mut headers = HeaderMap::new();
       headers.insert(AUTHORIZATION, answer.to_header_string().parse()?);
@@ -57,7 +58,7 @@ impl WithDigestAuth for RequestBuilder {
       match response.status() {
         StatusCode::UNAUTHORIZED => {
           // Cache might be stale, fall through to normal flow
-          credentials.clear_context(&host)?;
+          credentials.clear_context(host)?;
         }
         _ => return Ok(response),
       }
@@ -68,7 +69,7 @@ impl WithDigestAuth for RequestBuilder {
 
     match first_response.status() {
       StatusCode::UNAUTHORIZED => {
-        try_digest_auth_with_credentials(self, first_response, &host, credentials)
+        try_digest_auth_with_credentials(self, first_response, host, credentials)
       }
       _ => Ok(first_response),
     }

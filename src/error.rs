@@ -15,6 +15,7 @@ pub enum Error {
   AuthHeaderMissing,
   RequestBuilderNotCloneable,
   LockPoisoned,
+  MissingHost,
 }
 
 pub type Result<T> = result::Result<T, Error>;
@@ -29,6 +30,7 @@ impl Display for Error {
       Error::RequestBuilderNotCloneable => write!(f, "Request body must not be a stream."),
       Error::AuthHeaderMissing => write!(f, "The header 'www-authenticate' is missing."),
       Error::LockPoisoned => write!(f, "Lock was poisoned by a panicked thread."),
+      Error::MissingHost => write!(f, "URL has no host."),
     }
   }
 }
